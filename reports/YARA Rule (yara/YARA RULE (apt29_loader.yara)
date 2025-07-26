@@ -1,0 +1,10 @@
+rule APT29_Loader {
+  meta:
+    author = "Your Name"
+    description = "Detects APT29 PowerShell loader"
+  strings:
+    $ps1 = "Invoke-Expression" nocase
+    $http = /http[s]?:\/\/[^\s]+/  
+  condition:
+    $ps1 and $http
+}
