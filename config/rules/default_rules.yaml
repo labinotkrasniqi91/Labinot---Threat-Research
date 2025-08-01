@@ -1,0 +1,283 @@
+# Default SIEM Detection Rules
+
+rules:
+  - rule_id: "failed_login_attempts"
+    name: "Multiple Failed Login Attempts"
+    description: "Detects multiple failed login attempts from the same IP address within a short time window"
+    severity: "high"
+    enabled: true
+    query_type: "elasticsearch"
+    query: |
+      {
+        "query": {
+          "bool": {
+            "must": [
+              {"term": {"event_type": "failed_login"}},
+              {"range": {"@timestamp": {"gte": "now-5m"}}}
+            ]
+          }
+        },
+        "aggs": {
+          "by_source_ip": {
+            "terms": {"field": "source_ip"},
+            "aggs": {
+              "event_count": {"value_count": {"field": "_id"}}
+            }
+          }
+        }
+      }
+    conditions:
+      time_window: 300  # 5 minutes
+      threshold: 5
+      group_by: "source_ip"
+    actions:
+      - type: "alert"
+        severity: "high"
+      - type: "block_ip"
+        duration: 3600  # 1 hour
+    tags:
+      - "authentication"
+      - "brute_force"
+
+  - rule_id: "privilege_escalation"
+    name: "Privilege Escalation Detected"
+    description: "Detects privilege escalation attempts using sudo, su, or similar commands"
+    severity: "critical"
+    enabled: true
+    query_type: "elasticsearch"
+    query: |
+      {
+        "query": {
+          "bool": {
+            "should": [
+              {"match": {"command": "sudo"}},
+              {"match": {"command": "su -"}},
+              {"match": {"message": "privilege"}},
+              {"match": {"message": "escalation"}}
+            ],
+            "minimum_should_match": 1,
+            "must": [
+              {"range": {"@timestamp": {"gte": "now-1m"}}}
+            ]
+          }
+        }
+      }
+    conditions:
+      time_window: 60  # 1 minute
+      threshold: 1
+    actions:
+      - type: "alert"
+        severity: "critical"
+      - type: "notify_admin"
+    tags:
+      - "privilege_escalation"
+      - "critical"
+
+  - rule_id: "malware_detection"
+    name: "Malware Activity Detected"
+    description: "Detects potential malware activity based on file operations and process execution"
+    severity: "critical"
+    enabled: true
+    query_type: "elasticsearch"
+    query: |
+      {
+        "query": {
+          "bool": {
+            "should": [
+              {"match": {"message": "malware"}},
+              {"match": {"message": "virus"}},
+              {"match": {"message": "trojan"}},
+              {"match": {"message": "ransomware"}},
+              {"match": {"file_path": "*.exe"}},
+              {"match": {"process": "*malicious*"}}
+            ],
+            "minimum_should_match": 1,
+            "must": [
+              {"range": {"@timestamp": {"gte": "now-1m"}}}
+            ]
+          }
+        }
+      }
+    conditions:
+      time_window: 60  # 1 minute
+      threshold: 1
+    actions:
+      - type: "alert"
+        severity: "critical"
+      - type: "quarantine_file"
+      - type: "block_process"
+    tags:
+      - "malware"
+      - "critical"
+
+  - rule_id: "suspicious_network_activity"
+    name: "Suspicious Network Activity"
+    description: "Detects unusual network connections to known bad IPs or suspicious ports"
+    severity: "medium"
+    enabled: true
+    query_type: "elasticsearch"
+    query: |
+      {
+        "query": {
+          "bool": {
+            "should": [
+              {"range": {"destination_port": {"gte": 1024, "lte": 65535}}},
+              {"terms": {"destination_port": [22, 23, 135, 139, 445, 1433, 3389]}},
+              {"match": {"message": "connection refused"}},
+              {"match": {"message": "port scan"}}
+            ],
+            "minimum_should_match": 1,
+            "must": [
+              {"term": {"event_type": "network_connection"}},
+              {"range": {"@timestamp": {"gte": "now-10m"}}}
+            ]
+          }
+        },
+        "aggs": {
+          "by_source_ip": {
+            "terms": {"field": "source_ip"},
+            "aggs": {
+              "unique_ports": {"cardinality": {"field": "destination_port"}}
+            }
+          }
+        }
+      }
+    conditions:
+      time_window: 600  # 10 minutes
+      threshold: 10
+      group_by: "source_ip"
+    actions:
+      - type: "alert"
+        severity: "medium"
+      - type: "monitor_ip"
+    tags:
+      - "network"
+      - "suspicious"
+
+  - rule_id: "data_exfiltration"
+    name: "Potential Data Exfiltration"
+    description: "Detects large data transfers or access to sensitive files"
+    severity: "high"
+    enabled: true
+    query_type: "elasticsearch"
+    query: |
+      {
+        "query": {
+          "bool": {
+            "should": [
+              {"match": {"file_path": "*confidential*"}},
+              {"match": {"file_path": "*secret*"}},
+              {"match": {"file_path": "*password*"}},
+              {"match": {"message": "large file transfer"}},
+              {"range": {"response_size": {"gte": 1048576}}}
+            ],
+            "minimum_should_match": 1,
+            "must": [
+              {"range": {"@timestamp": {"gte": "now-15m"}}}
+            ]
+          }
+        }
+      }
+    conditions:
+      time_window: 900  # 15 minutes
+      threshold: 3
+      group_by: "user"
+    actions:
+      - type: "alert"
+        severity: "high"
+      - type: "block_user"
+        duration: 1800  # 30 minutes
+    tags:
+      - "data_exfiltration"
+      - "sensitive_data"
+
+  - rule_id: "anomalous_user_behavior"
+    name: "Anomalous User Behavior"
+    description: "Detects unusual user activity patterns"
+    severity: "medium"
+    enabled: true
+    query_type: "elasticsearch"
+    query: |
+      {
+        "query": {
+          "bool": {
+            "must": [
+              {"exists": {"field": "user"}},
+              {"range": {"@timestamp": {"gte": "now-1h"}}}
+            ]
+          }
+        },
+        "aggs": {
+          "by_user": {
+            "terms": {"field": "user"},
+            "aggs": {
+              "login_count": {
+                "filter": {"term": {"event_type": "login"}}
+              },
+              "unique_ips": {
+                "cardinality": {"field": "source_ip"}
+              },
+              "time_range": {
+                "date_range": {
+                  "field": "@timestamp",
+                  "ranges": [
+                    {"from": "now-1h", "to": "now"}
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    conditions:
+      time_window: 3600  # 1 hour
+      threshold: 5
+      group_by: "user"
+    actions:
+      - type: "alert"
+        severity: "medium"
+      - type: "require_mfa"
+    tags:
+      - "user_behavior"
+      - "anomaly"
+
+  - rule_id: "system_compromise"
+    name: "System Compromise Indicators"
+    description: "Detects indicators of system compromise"
+    severity: "critical"
+    enabled: true
+    query_type: "elasticsearch"
+    query: |
+      {
+        "query": {
+          "bool": {
+            "should": [
+              {"match": {"message": "backdoor"}},
+              {"match": {"message": "rootkit"}},
+              {"match": {"message": "compromise"}},
+              {"match": {"message": "breach"}},
+              {"match": {"process": "*nc.exe*"}},
+              {"match": {"process": "*netcat*"}},
+              {"match": {"command": "*base64*"}},
+              {"match": {"command": "*powershell*"}}
+            ],
+            "minimum_should_match": 1,
+            "must": [
+              {"range": {"@timestamp": {"gte": "now-5m"}}}
+            ]
+          }
+        }
+      }
+    conditions:
+      time_window: 300  # 5 minutes
+      threshold: 1
+    actions:
+      - type: "alert"
+        severity: "critical"
+      - type: "isolate_system"
+      - type: "notify_admin"
+      - type: "create_incident"
+    tags:
+      - "compromise"
+      - "critical"
+      - "incident_response"
