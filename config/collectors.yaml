@@ -1,0 +1,48 @@
+# SIEM Log Collector Configuration
+
+collectors:
+  # Syslog Collector Configuration
+  syslog:
+    enabled: true
+    host: "0.0.0.0"
+    port: 514
+    protocol: "udp"  # udp or tcp
+    buffer_size: 4096
+    api_url: "http://siem-core:8000"
+    batch_size: 100
+    flush_interval: 5  # seconds
+    
+  # File Collector Configuration
+  file:
+    enabled: true
+    watch_paths:
+      - "/var/log"
+      - "/host/var/log"
+      - "/tmp/test_logs"
+    file_patterns:
+      - "*.log"
+      - "*.txt"
+      - "auth.log*"
+      - "syslog*"
+      - "messages*"
+      - "secure*"
+      - "access.log*"
+      - "error.log*"
+    exclude_patterns:
+      - "*.gz"
+      - "*.zip"
+      - "*.bz2"
+      - "*.tar"
+      - "*.old"
+    max_line_length: 8192
+    encoding: "utf-8"
+    api_url: "http://siem-core:8000"
+    batch_size: 100
+    flush_interval: 5  # seconds
+
+# Global Settings
+global:
+  log_level: "INFO"
+  max_retries: 3
+  retry_delay: 5  # seconds
+  health_check_interval: 60  # seconds

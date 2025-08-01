@@ -1,0 +1,96 @@
+version: '3.8'
+
+services:
+  # PostgreSQL for metadata and configuration
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: siem_db
+      POSTGRES_USER: siem_user
+      POSTGRES_PASSWORD: siem_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - siem_network
+
+  # Redis for caching and real-time data
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - siem_network
+
+  # Elasticsearch for log storage and search
+  elasticsearch:
+    image: elasticsearch:8.11.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    networks:
+      - siem_network
+
+  # Kibana for data visualization (optional)
+  kibana:
+    image: kibana:8.11.0
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+    networks:
+      - siem_network
+
+  # SIEM Core Application
+  siem-core:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://siem_user:siem_password@postgres:5432/siem_db
+      - REDIS_URL=redis://redis:6379
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+    depends_on:
+      - postgres
+      - redis
+      - elasticsearch
+    volumes:
+      - ./logs:/app/logs
+      - ./config:/app/config
+    networks:
+      - siem_network
+
+  # Log Collector Service
+  log-collector:
+    build:
+      context: .
+      dockerfile: Dockerfile.collector
+    volumes:
+      - /var/log:/host/var/log:ro
+      - ./config:/app/config
+    environment:
+      - SIEM_API_URL=http://siem-core:8000
+    depends_on:
+      - siem-core
+    networks:
+      - siem_network
+
+volumes:
+  postgres_data:
+  redis_data:
+  elasticsearch_data:
+
+networks:
+  siem_network:
+    driver: bridge
